@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win"
+    "build": "electron-packager . Adblock --platform=win32 --arch=x64 --out=dist --overwrite --ignore=dist --extra-resource=Update-Hosts.ps1 --extra-resource=Icon"
   },
   "build": {
     "appId": "com.adblock.windows",
@@ -34,6 +34,6 @@
   },
   "devDependencies": {
     "electron": "^28.0.0",
-    "electron-builder": "^24.9.1"
+    "electron-packager": "^19.0.0"
   }
 }

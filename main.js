@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, Tray, nativeImage, Menu, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { spawn, execSync } = require('child_process');
 
 /* ── Auto-elevación solo en .exe empaquetado: si no somos admin, reiniciar como admin ── */
@@ -13,15 +14,22 @@ function isAdmin() {
 
 if (app.isPackaged && !isAdmin()) {
   const exePath = process.execPath;
-  const args = process.argv.slice(1).filter(a => a !== '.').map(a => `"${a.replace(/"/g, '\\"')}"`).join(' ');
-  spawn('powershell.exe', [
-    '-NoProfile', '-Command',
-    `Start-Process -FilePath "${exePath}" ${args ? '-ArgumentList ' + args : ''} -Verb RunAs`,
-  ], { windowsHide: true, detached: true, stdio: 'ignore' });
-  app.quit();
-  process.exit(0);
-}
-
+  // Sin -ArgumentList: solo lanzar el .exe con RunAs para que aparezca UAC
+  const cmd = `Start-Process -FilePath "${exePath.replace(/"/g, '`"')}" -Verb RunAs`;
+  const child = spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', cmd], {
+    windowsHide: true,
+    detached: true,
+    stdio: 'ignore',
+    shell: false,
+  });
+  child.unref();
+  // Dar tiempo al proceso elevado a iniciar antes de cerrar este
+  setTimeout(() => {
+    app.quit();
+    process.exit(0);
+  }, 800);
+} else {
+  // ─── Código normal de la app (solo si ya somos admin o no estamos empaquetados) ───
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
@@ -35,6 +43,30 @@ const CONFIG_PATH = path.join(RES, 'config.json');
 
 function iconPath() {
   return fs.existsSync(ICON_FILE) ? ICON_FILE : null;
+}
+
+/** Escribe diagnóstico en %TEMP%\\adblock-diagnostico.txt (solo empaquetado) */
+function writeDiagnostic() {
+  if (!app.isPackaged) return;
+  const lines = [
+    'Adblock - Diagnóstico',
+    '=====================',
+    'Fecha: ' + new Date().toISOString(),
+    'Empaquetado: ' + app.isPackaged,
+    'Es admin: ' + isAdmin(),
+    'process.execPath: ' + process.execPath,
+    'process.resourcesPath (RES): ' + process.resourcesPath,
+    'Ruta script (SCRIPT): ' + SCRIPT,
+    'Update-Hosts.ps1 existe: ' + fs.existsSync(SCRIPT),
+    'Icono existe: ' + fs.existsSync(ICON_FILE),
+    'Carpeta RES existe: ' + fs.existsSync(RES),
+  ];
+  const file = path.join(os.tmpdir(), 'adblock-diagnostico.txt');
+  try {
+    fs.writeFileSync(file, lines.join('\r\n'), 'utf8');
+  } catch (e) {
+    console.error('Diagnóstico no escrito:', e.message);
+  }
 }
 
 function createWindow() {
@@ -91,6 +123,7 @@ function createTray() {
 app.on('before-quit', () => { isQuitting = true; });
 
 app.whenReady().then(() => {
+  writeDiagnostic();
   createWindow();
   createTray();
 });
@@ -148,6 +181,20 @@ ipcMain.on('tray:tooltip', (_e, text) => {
 });
 
 ipcMain.handle('app:isAdmin', () => isAdmin());
+
+ipcMain.handle('app:getDiagnostic', () => {
+  const file = path.join(os.tmpdir(), 'adblock-diagnostico.txt');
+  return {
+    resourcesPath: RES,
+    scriptPath: SCRIPT,
+    scriptExists: fs.existsSync(SCRIPT),
+    iconExists: fs.existsSync(ICON_FILE),
+    isPackaged: app.isPackaged,
+    isAdmin: isAdmin(),
+    diagnosticFile: file,
+    diagnosticExists: fs.existsSync(file),
+  };
+});
 
 ipcMain.handle('app:relaunchAsAdmin', () => {
   if (!app.isPackaged) return { ok: false, error: 'Solo en la aplicación instalada' };
@@ -214,3 +261,5 @@ ipcMain.handle('config:importAdguard', async () => {
     return { ok: false, error: e.message };
   }
 });
+
+} // fin else (app normal)

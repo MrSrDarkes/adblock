@@ -41,11 +41,43 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
-echo.
-echo   [3/3] Listo!
+echo   [3/3] Copiando Update-Hosts.ps1 e Icon a resources...
+set "PROYECTO=%~dp0"
+set "SCRIPT_SRC=%PROYECTO%Update-Hosts.ps1"
+set "ICON_SRC=%PROYECTO%Icon"
+
+if not exist "%SCRIPT_SRC%" (
+    echo   [!] No se encuentra Update-Hosts.ps1 en la carpeta del proyecto.
+    echo       Ruta esperada: %SCRIPT_SRC%
+    goto :fin
+)
+
+set "RES1=%PROYECTO%dist\Adblock-win32-x64\resources"
+set "RES2=%PROYECTO%dist\win-unpacked\resources"
+
+for %%R in ("%RES1%" "%RES2%") do (
+    if exist "%%~dpR" (
+        if not exist "%%R\" mkdir "%%R\"
+        copy /Y "%SCRIPT_SRC%" "%%R\Update-Hosts.ps1"
+        if exist "%ICON_SRC%" (
+            if not exist "%%R\Icon\" mkdir "%%R\Icon\"
+            xcopy /Y /E /I /Q "%ICON_SRC%\*" "%%R\Icon\" >nul 2>&1
+        )
+        echo         Copiado a %%~dpR
+    )
+)
+
+if not exist "%RES1%" if not exist "%RES2%" (
+    echo   [!] No existe dist\Adblock-win32-x64 ni dist\win-unpacked.
+    echo       Ejecuta de nuevo "npm run build".
+)
+
+:fin
 echo.
 echo   ========================================
-echo     Resultado: dist\win-unpacked\Adblock.exe
+echo     Resultado: dist\Adblock-win32-x64\Adblock.exe
+echo     (o dist\win-unpacked\ si usaste electron-builder)
+echo     Update-Hosts.ps1 debe estar en resources\
 echo     Ejecuta como Administrador.
 echo   ========================================
 echo.

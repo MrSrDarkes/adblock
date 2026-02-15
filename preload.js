@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('api', {
   close: () => ipcRenderer.send('win:close'),
   setTooltip: (t) => ipcRenderer.send('tray:tooltip', t),
   isAdmin: () => ipcRenderer.invoke('app:isAdmin'),
+  getDiagnostic: () => ipcRenderer.invoke('app:getDiagnostic'),
   relaunchAsAdmin: () => ipcRenderer.invoke('app:relaunchAsAdmin'),
   importAdguardConfig: () => ipcRenderer.invoke('config:importAdguard'),
 });
