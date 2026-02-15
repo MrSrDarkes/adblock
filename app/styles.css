@@ -1,0 +1,139 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: #121212;
+  color: #e0e0e0;
+  height: 100vh;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Titlebar ── */
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding: 0 12px;
+  background: #1a1a1a;
+  -webkit-app-region: drag;
+}
+.titlebar-title { font-size: 13px; font-weight: 600; color: #b0b0b0; }
+.titlebar-buttons { display: flex; gap: 2px; -webkit-app-region: no-drag; }
+.tb-btn {
+  width: 32px; height: 28px; border: none; background: transparent;
+  color: #808080; font-size: 14px; cursor: pointer; border-radius: 4px;
+}
+.tb-btn:hover { background: #333; color: #fff; }
+.tb-close:hover { background: #e53935; color: #fff; }
+
+/* ── Banner administrador ── */
+.admin-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: rgba(229, 57, 53, 0.15);
+  border-bottom: 1px solid rgba(229, 57, 53, 0.4);
+  color: #ff8a80;
+  font-size: 13px;
+}
+.admin-banner.hidden { display: none; }
+.admin-banner-text { flex: 1; min-width: 200px; }
+.admin-banner-btn {
+  padding: 8px 16px;
+  background: #e53935;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.admin-banner-btn:hover { background: #ff5252; }
+
+/* ── Dashboard ── */
+.dashboard {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 24px 20px 16px; height: calc(100vh - 38px); overflow-y: auto;
+}
+
+/* ── Status Card ── */
+.status-card {
+  width: 100%; max-width: 360px; text-align: center;
+  background: #1e1e1e; border-radius: 16px;
+  padding: 28px 20px 24px; margin-bottom: 20px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.4);
+}
+.status-label { font-size: 13px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
+.blocked-count { font-size: 52px; font-weight: 700; color: #2ecc71; line-height: 1.1; }
+.blocked-count.inactive { color: #666; }
+.blocked-sub { font-size: 13px; color: #666; margin-top: 2px; }
+.blocked-sub span { color: #aaa; }
+
+/* ── Power Button ── */
+.power-wrap { margin-top: 22px; }
+.power-btn {
+  width: 72px; height: 72px; border-radius: 50%; border: 3px solid #333;
+  background: #1a1a1a; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .25s ease;
+}
+.power-icon { font-size: 30px; color: #555; transition: color .25s; }
+.power-btn.on { border-color: #2ecc71; background: rgba(46,204,113,.12); }
+.power-btn.on .power-icon { color: #2ecc71; }
+.power-btn.off { border-color: #e53935; background: rgba(229,57,53,.12); }
+.power-btn.off .power-icon { color: #e53935; }
+.power-btn:hover { transform: scale(1.06); }
+.power-btn:active { transform: scale(.97); }
+.power-btn:disabled { opacity: .5; cursor: wait; transform: none; }
+.power-label { font-size: 12px; color: #e53935; margin-top: 8px; font-weight: 600; letter-spacing: 1px; }
+.power-label.on { color: #2ecc71; }
+
+/* ── Tabs ── */
+.tabs {
+  display: flex; gap: 0; width: 100%; max-width: 360px;
+  border-bottom: 1px solid #2a2a2a; margin-bottom: 12px;
+}
+.tab {
+  flex: 1; padding: 10px 0; background: none; border: none;
+  color: #666; font-size: 13px; font-weight: 600; cursor: pointer;
+  border-bottom: 2px solid transparent; transition: .15s;
+}
+.tab:hover { color: #ccc; }
+.tab.active { color: #2ecc71; border-bottom-color: #2ecc71; }
+
+/* ── Panels ── */
+.panel { display: none; width: 100%; max-width: 360px; }
+.panel.active { display: block; }
+
+/* ── Actions ── */
+.action-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 0; text-decoration: none; color: #ddd;
+  border-bottom: 1px solid #1e1e1e; transition: .15s;
+}
+.action-row:hover { color: #2ecc71; }
+.action-icon { width: 24px; text-align: center; font-size: 16px; color: #666; }
+.action-row:hover .action-icon { color: #2ecc71; }
+
+/* ── Stats ── */
+.stat-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 0; border-bottom: 1px solid #1e1e1e;
+}
+.stat-row span { color: #888; font-size: 13px; }
+.stat-row strong { color: #2ecc71; font-size: 13px; }
+
+/* ── Log ── */
+.log-area {
+  background: #1a1a1a; border-radius: 8px;
+  padding: 12px 14px; font-size: 12px; color: #666;
+  min-height: 100px; max-height: 180px; overflow-y: auto;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  line-height: 1.6; white-space: pre-wrap;
+}

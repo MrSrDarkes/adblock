@@ -1,0 +1,9 @@
+node_modules/
+dist/
+backups/
+config.json
+user-block.txt
+user-allow.txt
+adg_ext_settings*.json
+*.log
+.env

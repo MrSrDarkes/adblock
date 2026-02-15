@@ -1,0 +1,39 @@
+{
+  "name": "adblock",
+  "version": "1.0.0",
+  "description": "Adblock para Windows",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.adblock.windows",
+    "productName": "Adblock",
+    "files": [
+      "main.js",
+      "preload.js",
+      "app/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "Update-Hosts.ps1",
+        "to": "Update-Hosts.ps1"
+      },
+      {
+        "from": "Icon",
+        "to": "Icon",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "icon": "Icon/adblock-icon.png",
+      "target": "dir",
+      "sign": false
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  }
+}
