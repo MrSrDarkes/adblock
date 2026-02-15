@@ -5,8 +5,8 @@ Aplicación de escritorio que bloquea anuncios y rastreadores en todo el sistema
 ## Crear el ejecutable
 
 1. Instala [Node.js](https://nodejs.org) (solo para compilar).
-2. Doble clic en **`Crear ejecutable.bat`**.
-3. El instalador quedará en **`dist/`**. Ejecuta el `.exe` generado.
+2. Doble clic en **`COMPILAR.bat`**.
+3. El ejecutable quedará en **`dist/Adblock-win32-x64/Adblock.exe`**. Ejecútalo como administrador.
 
 ## Uso
 
