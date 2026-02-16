@@ -7,3 +7,4 @@ user-allow.txt
 adg_ext_settings*.json
 *.log
 .env
+*.png
