@@ -60,17 +60,19 @@ function Get-UserAllowList {
     Get-Content $UserAllowPath -Encoding UTF8 | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ -and $_ -notmatch '^\s*#' }
 }
 
-# Extrae dominios de contenido tipo Adblock/EasyList/AdGuard (reglas ||dominio^ o ||dominio/)
+# Extrae SOLO dominios válidos para hosts: líneas que son exactamente ||dominio^
+# Ignora líneas con $, /, * (sintaxis de extensiones) para no corromper el archivo hosts.
+# RegEx: ^\|\|([a-zA-Z0-9.-]+)\^  → solo grupo 1, luego "0.0.0.0 dominio"
 function Get-DomainsFromFilterContent {
     param([string]$Content)
     $entries = @()
     foreach ($line in ($Content -split "`n")) {
         $line = $line.Trim()
         if (-not $line -or $line.StartsWith('!') -or $line.StartsWith('[') -or $line.StartsWith('@@')) { continue }
-        if ($line -match '^\|\|([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])(?:\^|/|\||$)') {
+        if ($line -match '\$' -or $line -match '/' -or $line -match '\*') { continue }
+        if ($line -match '^\|\|([a-zA-Z0-9.-]+)\^') {
             $domain = $Matches[1].ToLowerInvariant()
-            $domain = $domain -replace '^\*\.', '' -replace '^\.', ''
-            if ($domain -match '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$' -and $domain -match '\.' -and $domain.Length -le 253) {
+            if ($domain -match '\.' -and $domain.Length -ge 4 -and $domain.Length -le 253 -and $domain -match '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$') {
                 $entries += "0.0.0.0 $domain"
             }
         }

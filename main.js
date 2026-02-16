@@ -20,12 +20,18 @@ function getScriptPath() {
 }
 
 function getIconPath() {
+  const names = ['icon.png', 'adblock-icon.png'];
   if (app.isPackaged && process.resourcesPath) {
-    const inRes = path.join(process.resourcesPath, 'Icon', 'adblock-icon.png');
-    if (fs.existsSync(inRes)) return inRes;
+    for (const n of names) {
+      const p = path.join(process.resourcesPath, 'Icon', n);
+      if (fs.existsSync(p)) return p;
+    }
   }
-  const inDir = path.join(__dirname, 'Icon', 'adblock-icon.png');
-  return fs.existsSync(inDir) ? inDir : null;
+  for (const n of names) {
+    const p = path.join(__dirname, 'Icon', n);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
 }
 
 // Detecta si el error es por falta de permisos de administrador
@@ -96,6 +102,8 @@ async function getEstado() {
 }
 
 function createWindow() {
+  const preloadPath = path.join(__dirname, 'preload.js');
+  const indexPath = path.join(__dirname, 'app', 'index.html');
   mainWindow = new BrowserWindow({
     width: 420,
     height: 520,
@@ -105,13 +113,14 @@ function createWindow() {
     minimizable: true,
     backgroundColor: '#0d1117',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false
     },
     title: 'Adblock Coffe'
   });
-  mainWindow.loadFile(path.join(__dirname, 'app', 'index.html'));
+  mainWindow.loadFile(indexPath);
+  if (!app.isPackaged) mainWindow.webContents.openDevTools({ mode: 'detach' });
   mainWindow.on('close', e => {
     if (!app.isQuitting) {
       e.preventDefault();

@@ -33,6 +33,7 @@ html, body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  pointer-events: auto;
 }
 
 .titlebar {
@@ -43,14 +44,18 @@ html, body {
   padding: 0 12px 0 16px;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
   user-select: none;
+  position: relative;
 }
 
 .titlebar-drag {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 120px;
+  bottom: 0;
   -webkit-app-region: drag;
+  z-index: 0;
 }
 
 .titlebar-title {
@@ -66,7 +71,7 @@ html, body {
   gap: 2px;
   -webkit-app-region: no-drag;
   position: relative;
-  z-index: 10;
+  z-index: 5;
   pointer-events: auto;
 }
 
@@ -99,6 +104,7 @@ html, body {
 .app-main {
   padding: 24px;
   min-height: calc(100vh - var(--titlebar-h));
+  pointer-events: auto;
 }
 
 .notification {
@@ -148,9 +154,19 @@ html, body {
 }
 
 .status-subtitle {
-  margin: 0 0 16px 0;
+  margin: 0 0 8px 0;
   font-size: 13px;
   color: var(--text-muted);
+}
+
+.status-loading {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: var(--accent-on);
+}
+
+.status-loading-hidden {
+  display: none;
 }
 
 .switch-wrap {
@@ -158,6 +174,25 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+}
+
+.btn-recargar {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  pointer-events: auto;
+}
+
+.btn-recargar:hover {
+  background: var(--border);
+  color: var(--text);
 }
 
 .switch-btn {
@@ -168,6 +203,7 @@ html, body {
   border: none;
   background: var(--accent-off);
   cursor: pointer;
+  pointer-events: auto;
   transition: background 0.25s, box-shadow 0.25s;
   padding: 0;
 }
@@ -176,15 +212,48 @@ html, body {
   background: var(--accent-off-hover);
 }
 
+.switch-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.9;
+}
+
 .switch-btn.loading {
   pointer-events: none;
-  opacity: 0.8;
-  animation: pulse 1s ease-in-out infinite;
+  cursor: wait;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.switch-btn.loading .switch-knob {
+  opacity: 0.7;
+}
+
+.switch-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  animation: spin 0.8s linear infinite;
+}
+
+.switch-btn.loading .switch-spinner {
+  opacity: 1;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 0.8; }
-  50% { opacity: 0.5; }
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.65; }
 }
 
 .switch-knob {
@@ -236,6 +305,7 @@ html, body {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+  pointer-events: auto;
   transition: background 0.2s, color 0.2s;
 }
 
@@ -277,6 +347,7 @@ html, body {
   font-family: inherit;
   text-align: left;
   cursor: pointer;
+  pointer-events: auto;
   transition: background 0.15s;
 }
 

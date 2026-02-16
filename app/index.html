@@ -27,10 +27,13 @@
     <section class="hero">
       <p id="statusTitle" class="status-title">Protección deshabilitada</p>
       <p id="statusSubtitle" class="status-subtitle">Total bloqueado: 0</p>
+      <p id="statusLoading" class="status-loading status-loading-hidden" aria-live="polite">Aplicando cambios... (puede tardar un momento)</p>
       <div class="switch-wrap" role="switch" aria-label="Protección Adblock">
         <button type="button" id="btnToggle" class="switch-btn" aria-pressed="false">
           <span class="switch-knob"></span>
+          <span class="switch-spinner" aria-hidden="true"></span>
         </button>
+        <button type="button" id="btnRecargar" class="btn-recargar" title="Recargar estado">Recargar</button>
       </div>
     </section>
 
@@ -42,8 +45,8 @@
     <div id="panelAcciones" class="panel active" role="tabpanel">
       <ul class="menu-list">
         <li>
-          <button type="button" id="btnRefresh" class="menu-item">
-            <span class="menu-item-text">Actualizar estado / Bloquear anuncios manualmente</span>
+          <button type="button" id="btnActivarManual" class="menu-item">
+            <span class="menu-item-text">Bloquear anuncios manualmente</span>
           </button>
         </li>
         <li>

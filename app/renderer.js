@@ -1,11 +1,18 @@
-let btnToggle, statusTitle, statusSubtitle, statDominios, statEstado;
-let btnRefresh, btnImport, btnMin, btnMax, btnClose;
+let btnToggle, statusTitle, statusSubtitle, statusLoading, statDominios, statEstado;
+let btnRecargar, btnActivarManual, btnImport, btnMin, btnMax, btnClose;
 let tabAcciones, tabEstadisticas, panelAcciones, panelEstadisticas;
 let logEl, notification, notificationText, notificationDismiss;
 
 const MSG_NEED_ADMIN = 'Se requieren permisos de administrador para aplicar los cambios.';
 
 function getEl(id) { return document.getElementById(id); }
+
+function showApiError() {
+  if (notification && notificationText) {
+    notificationText.textContent = 'Error: no se pudo cargar la conexión con la app. Cierra y vuelve a abrir, o ejecuta como administrador.';
+    notification.classList.remove('notification-hidden');
+  }
+}
 
 function log(msg) {
   if (!logEl) return;
@@ -25,8 +32,15 @@ function hideNotification() {
 
 function setLoading(loading) {
   if (!btnToggle) return;
-  if (loading) btnToggle.classList.add('loading');
-  else btnToggle.classList.remove('loading');
+  if (loading) {
+    btnToggle.classList.add('loading');
+    btnToggle.disabled = true;
+    if (statusLoading) statusLoading.classList.remove('status-loading-hidden');
+  } else {
+    btnToggle.classList.remove('loading');
+    btnToggle.disabled = false;
+    if (statusLoading) statusLoading.classList.add('status-loading-hidden');
+  }
 }
 
 function applyEstado(data) {
@@ -67,12 +81,17 @@ async function refreshStatus() {
 }
 
 async function toggleAdblock() {
-  const isProtected = btnToggle.classList.contains('protected');
-  const action = isProtected ? 'desactivar' : 'activar';
+  const wasProtected = btnToggle && btnToggle.classList.contains('protected');
+  const action = wasProtected ? 'desactivar' : 'activar';
   setLoading(true);
   hideNotification();
 
-  const r = await (action === 'activar' ? window.api.activar() : window.api.desactivar());
+  let r;
+  try {
+    r = await (action === 'activar' ? window.api.activar() : window.api.desactivar());
+  } catch (err) {
+    r = { ok: false, activo: wasProtected, dominios: null, error: err && err.message ? err.message : 'Error desconocido' };
+  }
 
   setLoading(false);
 
@@ -81,8 +100,8 @@ async function toggleAdblock() {
     applyEstado({ activo: r.activo, dominios: r.dominios });
   } else {
     if (r.needsAdmin) showNotification(MSG_NEED_ADMIN);
-    else log('Error: ' + (r.error || ''));
-    applyEstado({ activo: r.activo, dominios: r.dominios });
+    else showNotification(r.error || 'No se pudieron aplicar los cambios.');
+    applyEstado({ activo: r.activo !== undefined ? r.activo : wasProtected, dominios: r.dominios != null ? r.dominios : null });
   }
 }
 
@@ -120,9 +139,11 @@ function init() {
   btnToggle = getEl('btnToggle');
   statusTitle = getEl('statusTitle');
   statusSubtitle = getEl('statusSubtitle');
+  statusLoading = getEl('statusLoading');
   statDominios = getEl('statDominios');
   statEstado = getEl('statEstado');
-  btnRefresh = getEl('btnRefresh');
+  btnRecargar = getEl('btnRecargar');
+  btnActivarManual = getEl('btnActivarManual');
   btnImport = getEl('btnImport');
   btnMin = getEl('btnMin');
   btnMax = getEl('btnMax');
@@ -140,6 +161,7 @@ function init() {
 
   if (!window.api) {
     console.error('Adblock: window.api no disponible. ¿Se cargó el preload?');
+    showApiError();
     return;
   }
 
@@ -151,11 +173,12 @@ function init() {
   }
 
   if (btnToggle) btnToggle.addEventListener('click', toggleAdblock);
-  if (btnRefresh) btnRefresh.addEventListener('click', () => { log('Actualizando estado...'); refreshStatus(); });
+  if (btnRecargar) btnRecargar.addEventListener('click', () => { log('Recargando estado...'); refreshStatus(); });
+  if (btnActivarManual) btnActivarManual.addEventListener('click', () => { if (!btnToggle || !btnToggle.classList.contains('protected')) toggleAdblock(); else log('La protección ya está activa.'); });
   if (btnImport) btnImport.addEventListener('click', importConfig);
-  if (btnMin) btnMin.addEventListener('click', () => window.api.minimize());
-  if (btnMax) btnMax.addEventListener('click', () => window.api.maximize());
-  if (btnClose) btnClose.addEventListener('click', () => window.api.close());
+  if (btnMin) btnMin.addEventListener('click', () => window.api && window.api.minimize());
+  if (btnMax) btnMax.addEventListener('click', () => window.api && window.api.maximize());
+  if (btnClose) btnClose.addEventListener('click', () => window.api && window.api.close());
   if (notificationDismiss) notificationDismiss.addEventListener('click', hideNotification);
   if (tabAcciones) tabAcciones.addEventListener('click', () => switchTab(true));
   if (tabEstadisticas) tabEstadisticas.addEventListener('click', () => switchTab(false));
