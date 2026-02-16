@@ -1,265 +1,320 @@
-const { app, BrowserWindow, ipcMain, Tray, nativeImage, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, dialog } = require('electron');
 const path = require('path');
+const { spawn } = require('child_process');
 const fs = require('fs');
-const os = require('os');
-const { spawn, execSync } = require('child_process');
 
-/* ── Auto-elevación solo en .exe empaquetado: si no somos admin, reiniciar como admin ── */
-function isAdmin() {
-  try {
-    execSync('net session', { windowsHide: true, stdio: 'ignore' });
-    return true;
-  } catch { return false; }
-}
-
-if (app.isPackaged && !isAdmin()) {
-  const exePath = process.execPath;
-  // Sin -ArgumentList: solo lanzar el .exe con RunAs para que aparezca UAC
-  const cmd = `Start-Process -FilePath "${exePath.replace(/"/g, '`"')}" -Verb RunAs`;
-  const child = spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', cmd], {
-    windowsHide: true,
-    detached: true,
-    stdio: 'ignore',
-    shell: false,
-  });
-  child.unref();
-  // Dar tiempo al proceso elevado a iniciar antes de cerrar este
-  setTimeout(() => {
-    app.quit();
-    process.exit(0);
-  }, 800);
-} else {
-  // ─── Código normal de la app (solo si ya somos admin o no estamos empaquetados) ───
 let mainWindow = null;
 let tray = null;
-let isQuitting = false;
 
-const RES = app.isPackaged ? process.resourcesPath : __dirname;
-const ICON_FILE = path.join(RES, 'Icon', 'adblock-icon.png');
-const SCRIPT = path.join(RES, 'Update-Hosts.ps1');
-const USER_ALLOW_PATH = path.join(RES, 'user-allow.txt');
-const USER_BLOCK_PATH = path.join(RES, 'user-block.txt');
-const CONFIG_PATH = path.join(RES, 'config.json');
+const spawnOpts = {
+  windowsHide: true,
+  stdio: ['ignore', 'pipe', 'pipe']
+};
 
-function iconPath() {
-  return fs.existsSync(ICON_FILE) ? ICON_FILE : null;
+// Rutas fijas: empaquetado OBLIGATORIAMENTE process.resourcesPath; desarrollo __dirname
+function getScriptPath() {
+  if (app.isPackaged && process.resourcesPath) {
+    return path.join(process.resourcesPath, 'Update-Hosts.ps1');
+  }
+  return path.join(__dirname, 'Update-Hosts.ps1');
 }
 
-/** Escribe diagnóstico en %TEMP%\\adblock-diagnostico.txt (solo empaquetado) */
-function writeDiagnostic() {
-  if (!app.isPackaged) return;
-  const lines = [
-    'Adblock - Diagnóstico',
-    '=====================',
-    'Fecha: ' + new Date().toISOString(),
-    'Empaquetado: ' + app.isPackaged,
-    'Es admin: ' + isAdmin(),
-    'process.execPath: ' + process.execPath,
-    'process.resourcesPath (RES): ' + process.resourcesPath,
-    'Ruta script (SCRIPT): ' + SCRIPT,
-    'Update-Hosts.ps1 existe: ' + fs.existsSync(SCRIPT),
-    'Icono existe: ' + fs.existsSync(ICON_FILE),
-    'Carpeta RES existe: ' + fs.existsSync(RES),
-  ];
-  const file = path.join(os.tmpdir(), 'adblock-diagnostico.txt');
+function getIconPath() {
+  if (app.isPackaged && process.resourcesPath) {
+    const inRes = path.join(process.resourcesPath, 'Icon', 'adblock-icon.png');
+    if (fs.existsSync(inRes)) return inRes;
+  }
+  const inDir = path.join(__dirname, 'Icon', 'adblock-icon.png');
+  return fs.existsSync(inDir) ? inDir : null;
+}
+
+// Detecta si el error es por falta de permisos de administrador
+function isPermissionError(err) {
+  if (!err || !err.message) return false;
+  const msg = (err.message + '').toLowerCase();
+  return /administrador|access is denied|runas|permiso|privilegio|elevación|denied|unauthorized/i.test(msg);
+}
+
+// PowerShell silencioso: -WindowStyle Hidden, sin ventanas CMD; salida trim y objeto limpio
+function runPS(accion) {
+  return new Promise((resolve, reject) => {
+    const script = getScriptPath();
+    const args = [
+      '-NoProfile',
+      '-ExecutionPolicy', 'Bypass',
+      '-WindowStyle', 'Hidden',
+      '-File', script,
+      '-Accion', accion
+    ];
+    const ps = spawn('powershell.exe', args, {
+      cwd: path.dirname(script),
+      ...spawnOpts
+    });
+    let stdout = '';
+    let stderr = '';
+    ps.stdout.on('data', d => { stdout += d.toString(); });
+    ps.stderr.on('data', d => { stderr += d.toString(); });
+    ps.on('close', code => {
+      const out = (stdout + '').trim();
+      const err = (stderr + '').trim();
+      if (code !== 0) {
+        const error = new Error(err || `Exit ${code}`);
+        if (isPermissionError(error)) error.code = 'ELEVATION_REQUIRED';
+        return reject(error);
+      }
+      resolve({ output: out, error: err });
+    });
+    ps.on('error', err => reject(err));
+  });
+}
+
+// Parsea salida del script (ya trim) → { activo, dominios }; extrae "Dominios bloqueados: X"
+function parseEstadoOutput(output) {
+  const text = (output || '') + '';
+  const activo = text.toLowerCase().includes('estado: adblock activo');
+  let dominios = 0;
+  const m = text.match(/Dominios bloqueados:\s*(\d+)/i);
+  if (m) dominios = parseInt(m[1], 10);
+  return { activo, dominios };
+}
+
+async function getEstado() {
   try {
-    fs.writeFileSync(file, lines.join('\r\n'), 'utf8');
+    const r = await runPS('estado');
+    const parsed = parseEstadoOutput(r.output);
+    return { ok: true, activo: parsed.activo, dominios: parsed.dominios, output: r.output };
   } catch (e) {
-    console.error('Diagnóstico no escrito:', e.message);
+    const needsAdmin = e.code === 'ELEVATION_REQUIRED' || isPermissionError(e);
+    return {
+      ok: false,
+      error: e.message,
+      activo: false,
+      dominios: 0,
+      needsAdmin
+    };
   }
 }
 
 function createWindow() {
-  const ico = iconPath();
   mainWindow = new BrowserWindow({
     width: 420,
-    height: 620,
-    resizable: false,
-    maximizable: false,
-    fullscreenable: false,
+    height: 520,
     frame: false,
-    transparent: false,
-    backgroundColor: '#121212',
-    icon: ico || undefined,
-    show: false,
-    title: 'Adblock',
+    icon: getIconPath() || undefined,
+    resizable: true,
+    minimizable: true,
+    backgroundColor: '#0d1117',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: true,
+      nodeIntegration: false
     },
+    title: 'Adblock Coffe'
   });
-
   mainWindow.loadFile(path.join(__dirname, 'app', 'index.html'));
-  mainWindow.setMenuBarVisibility(false);
-  mainWindow.once('ready-to-show', () => mainWindow.show());
-
-  mainWindow.on('close', (e) => {
-    if (!isQuitting) {
+  mainWindow.on('close', e => {
+    if (!app.isQuitting) {
       e.preventDefault();
       mainWindow.hide();
     }
   });
+
+  // Persistencia del estado: al cargar la ventana, enviar estado para que el botón sea correcto desde el primer segundo
+  mainWindow.webContents.once('did-finish-load', async () => {
+    try {
+      const estado = await getEstado();
+      mainWindow.webContents.send('estado-inicial', {
+        activo: estado.activo,
+        dominios: estado.dominios,
+        ok: estado.ok,
+        error: estado.error,
+        needsAdmin: estado.needsAdmin
+      });
+    } catch (_) {}
+  });
 }
 
 function createTray() {
-  const ico = iconPath();
-  if (!ico) return;
-  const img = nativeImage.createFromPath(ico);
-  if (img.isEmpty()) return;
-  tray = new Tray(img.resize({ width: 16, height: 16 }));
-  tray.setToolTip('Adblock');
-  tray.on('click', () => {
-    if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
-  });
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Abrir Adblock', click() { if (mainWindow) mainWindow.show(); } },
-    { type: 'separator' },
-    { label: 'Salir', click() { app.quit(); } },
-  ]));
-}
-
-app.on('before-quit', () => { isQuitting = true; });
-
-app.whenReady().then(() => {
-  writeDiagnostic();
-  createWindow();
-  createTray();
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('activate', () => {
-  if (!mainWindow) createWindow();
-  else mainWindow.show();
-});
-
-function runPS(action) {
-  return new Promise((resolve, reject) => {
-    if (!fs.existsSync(SCRIPT)) {
-      return reject(new Error('No se encuentra Update-Hosts.ps1'));
+  const iconPath = getIconPath();
+  if (!iconPath) return;
+  tray = new Tray(iconPath);
+  tray.setToolTip('Adblock Coffe');
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
     }
-    const ps = spawn('powershell.exe', [
-      '-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', SCRIPT, '-Accion', action,
-    ], { cwd: RES, windowsHide: true, shell: false });
-
-    let out = '', err = '';
-    ps.stdout.on('data', (d) => { out += (d && d.toString) ? d.toString() : String(d); });
-    ps.stderr.on('data', (d) => { err += (d && d.toString) ? d.toString() : String(d); });
-    ps.on('close', (code) => {
-      const combined = (out + '\n' + err).trim();
-      if (code === 0) return resolve(combined || out || err);
-      reject(new Error(combined || err || out || `Código salida ${code}`));
-    });
-    ps.on('error', (e) => reject(e));
   });
 }
 
-ipcMain.handle('adblock:activate', async () => {
-  try { return { ok: true, output: await runPS('activar') }; }
-  catch (e) { return { ok: false, error: e.message }; }
+function setTrayTooltip(text) {
+  if (tray) tray.setToolTip(text);
+}
+
+function checkIsAdmin() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve(true);
+    const ps = spawn('powershell.exe', [
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+      '-Command', "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"
+    ], spawnOpts);
+    let out = '';
+    ps.stdout.on('data', d => { out += d.toString(); });
+    ps.on('close', code => {
+      resolve(code === 0 && out.trim().toLowerCase() === 'true');
+    });
+    ps.on('error', () => resolve(false));
+  });
+}
+
+function relaunchAsAdmin() {
+  return new Promise((resolve, reject) => {
+    const exe = process.execPath;
+    const cwd = process.cwd();
+    const ps = spawn('powershell.exe', [
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+      '-Command', `Start-Process -FilePath ${JSON.stringify(exe)} -Verb RunAs -WorkingDirectory ${JSON.stringify(cwd)} -ArgumentList '--elevated'`
+    ], { windowsHide: true, detached: true, stdio: 'ignore' });
+    ps.on('error', reject);
+    ps.on('close', () => {
+      app.isQuitting = true;
+      app.quit();
+      resolve();
+    });
+  });
+}
+
+// --- IPC ---
+
+ipcMain.handle('activar', async () => {
+  try {
+    await runPS('activar');
+    const estado = await getEstado();
+    return {
+      ok: true,
+      activo: estado.activo,
+      dominios: typeof estado.dominios === 'number' ? estado.dominios : 0
+    };
+  } catch (e) {
+    const needsAdmin = e.code === 'ELEVATION_REQUIRED' || isPermissionError(e);
+    const estado = await getEstado().catch(() => ({}));
+    return {
+      ok: false,
+      error: e.message,
+      activo: estado.activo ?? false,
+      dominios: typeof estado.dominios === 'number' ? estado.dominios : 0,
+      needsAdmin
+    };
+  }
 });
 
-ipcMain.handle('adblock:deactivate', async () => {
-  try { return { ok: true, output: await runPS('desactivar') }; }
-  catch (e) { return { ok: false, error: e.message }; }
+ipcMain.handle('desactivar', async () => {
+  try {
+    await runPS('desactivar');
+    const estado = await getEstado();
+    return {
+      ok: true,
+      activo: estado.activo,
+      dominios: typeof estado.dominios === 'number' ? estado.dominios : 0
+    };
+  } catch (e) {
+    const needsAdmin = e.code === 'ELEVATION_REQUIRED' || isPermissionError(e);
+    const estado = await getEstado().catch(() => ({}));
+    return {
+      ok: false,
+      error: e.message,
+      activo: estado.activo ?? false,
+      dominios: typeof estado.dominios === 'number' ? estado.dominios : 0,
+      needsAdmin
+    };
+  }
 });
 
-ipcMain.handle('adblock:status', async () => {
-  try { return { ok: true, output: await runPS('estado') }; }
-  catch (e) { return { ok: false, error: e.message }; }
-});
-
-ipcMain.on('win:minimize', () => { if (mainWindow) mainWindow.hide(); });
-ipcMain.on('win:close', () => { app.quit(); });
-
-ipcMain.on('tray:tooltip', (_e, text) => {
-  if (tray) tray.setToolTip(text || 'Adblock');
-});
-
-ipcMain.handle('app:isAdmin', () => isAdmin());
-
-ipcMain.handle('app:getDiagnostic', () => {
-  const file = path.join(os.tmpdir(), 'adblock-diagnostico.txt');
+ipcMain.handle('estado', async () => {
+  const r = await getEstado();
   return {
-    resourcesPath: RES,
-    scriptPath: SCRIPT,
-    scriptExists: fs.existsSync(SCRIPT),
-    iconExists: fs.existsSync(ICON_FILE),
-    isPackaged: app.isPackaged,
-    isAdmin: isAdmin(),
-    diagnosticFile: file,
-    diagnosticExists: fs.existsSync(file),
+    ok: r.ok,
+    activo: r.activo,
+    dominios: typeof r.dominios === 'number' ? r.dominios : 0,
+    error: r.error,
+    needsAdmin: r.needsAdmin
   };
 });
 
-ipcMain.handle('app:relaunchAsAdmin', () => {
-  if (!app.isPackaged) return { ok: false, error: 'Solo en la aplicación instalada' };
-  if (isAdmin()) return { ok: true, alreadyAdmin: true };
-  const exePath = process.execPath;
-  spawn('powershell.exe', [
-    '-NoProfile', '-Command',
-    `Start-Process -FilePath "${exePath}" -Verb RunAs`,
-  ], { windowsHide: true, detached: true, stdio: 'ignore' });
-  setTimeout(() => app.quit(), 500);
-  return { ok: true };
+ipcMain.handle('getDiagnostic', async () => {
+  const script = getScriptPath();
+  const exists = fs.existsSync(script);
+  return {
+    scriptPath: script,
+    scriptExists: exists,
+    resourcesPath: app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources'),
+    isPackaged: app.isPackaged
+  };
 });
 
-/* ── Importar configuración tipo AdGuard ── */
-function extractDomainsFromAdguardRules(rulesText) {
-  if (!rulesText || typeof rulesText !== 'string') return [];
-  const domains = new Set();
-  const lines = rulesText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  for (const line of lines) {
-    if (line.startsWith('#')) continue;
-    const m = line.match(/\|\|([a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?)\^/);
-    if (m) domains.add(m[1].toLowerCase());
+function importAdguardFromPath(filePath) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const data = JSON.parse(content);
+  const userBlock = path.join(path.dirname(getScriptPath()), 'user-block.txt');
+  let rulesRaw = '';
+  if (data.filters && data.filters['user-filter'] && typeof data.filters['user-filter'].rules === 'string') {
+    rulesRaw = data.filters['user-filter'].rules;
+  } else if (data.filters && data.filters['user-filter'] && Array.isArray(data.filters['user-filter'].rules)) {
+    rulesRaw = (data.filters['user-filter'].rules || []).join('\n');
   }
-  return [...domains];
+  const lines = rulesRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  fs.writeFileSync(userBlock, lines.join('\n'), 'utf8');
+  return { ok: true, count: lines.length };
 }
 
-ipcMain.handle('config:importAdguard', async () => {
+ipcMain.handle('importAdguardConfig', async (_, filePath) => {
   try {
-    const win = mainWindow;
-    const result = await dialog.showOpenDialog(win, {
-      title: 'Importar configuración AdGuard',
-      filters: [{ name: 'JSON', extensions: ['json'] }],
-      properties: ['openFile'],
-    });
-    if (result.canceled || !result.filePaths.length) {
-      return { ok: false, canceled: true };
-    }
-    const content = fs.readFileSync(result.filePaths[0], 'utf8');
-    const data = JSON.parse(content);
-
-    let allowList = [];
-    if (data.filters && data.filters.allowlist && Array.isArray(data.filters.allowlist.domains)) {
-      allowList = data.filters.allowlist.domains
-        .map(d => (d && typeof d === 'string' ? d.trim().toLowerCase() : ''))
-        .filter(Boolean);
-    }
-
-    let blockList = [];
-    if (data.filters && data.filters['user-filter'] && data.filters['user-filter'].rules) {
-      blockList = extractDomainsFromAdguardRules(data.filters['user-filter'].rules);
-    }
-
-    const allowContent = allowList.join('\n') + (allowList.length ? '\n' : '');
-    const blockContent = blockList.join('\n') + (blockList.length ? '\n' : '');
-    fs.writeFileSync(USER_ALLOW_PATH, allowContent, 'utf8');
-    fs.writeFileSync(USER_BLOCK_PATH, blockContent, 'utf8');
-
-    return {
-      ok: true,
-      allowCount: allowList.length,
-      blockCount: blockList.length,
-    };
+    if (!filePath || typeof filePath !== 'string') return { ok: false, error: 'Ruta de archivo no válida' };
+    return importAdguardFromPath(filePath);
   } catch (e) {
     return { ok: false, error: e.message };
   }
 });
 
-} // fin else (app normal)
+ipcMain.handle('openAdguardFileDialog', async () => {
+  try {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow || null, {
+      title: 'Importar configuración AdGuard',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile']
+    });
+    if (canceled || !filePaths || filePaths.length === 0) return { ok: false, canceled: true };
+    return importAdguardFromPath(filePaths[0]);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('minimize', () => { if (mainWindow) mainWindow.minimize(); });
+ipcMain.handle('maximize', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
+ipcMain.handle('close', () => { if (mainWindow) mainWindow.hide(); });
+ipcMain.handle('setTooltip', (_, text) => setTrayTooltip(text));
+
+app.whenReady().then(async () => {
+  if (process.platform === 'win32' && !process.argv.includes('--elevated')) {
+    const isAdmin = await checkIsAdmin();
+    if (!isAdmin) {
+      try {
+        await relaunchAsAdmin();
+        return;
+      } catch (e) {
+        console.error('No se pudo elevar. Ejecuta la app como administrador.', e);
+      }
+    }
+  }
+
+  createWindow();
+  createTray();
+});
+
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { app.isQuitting = true; });

@@ -1,50 +1,52 @@
-# Adblock para Windows
+# Adblock Coffe
 
-Aplicación de escritorio que bloquea anuncios y rastreadores en todo el sistema modificando el archivo `hosts`.
+Aplicación de escritorio para Windows que bloquea anuncios y rastreadores modificando el archivo **hosts**. Usa listas de Steven Black, EasyList y AdGuard Filters.
 
-## Crear el ejecutable
+## Requisitos
 
-1. Instala [Node.js](https://nodejs.org) (solo para compilar).
-2. Instala dependencias en la carpeta del proyecto:
-   `npm install`
-3. Compila con:
-   `npm run build`
-   Resultado esperado: `dist/Adblock-win32-x64/Adblock.exe`.
+- Windows 10/11
+- **Ejecutar como administrador** (necesario para editar `C:\Windows\System32\drivers\etc\hosts`)
 
-> También puedes usar **COMPILAR.bat**, que ejecuta instalación + compilación automáticamente.
+## Instalación
 
-**Importante:** `Update-Hosts.ps1` debe quedar dentro de `resources/` junto al `.exe`. La app usa `process.resourcesPath` para encontrarlo. Si el UAC no aparece al abrir el `.exe`, revisa `%TEMP%\adblock-diagnostico.txt`.
+1. Descarga el instalador desde [Releases](https://github.com/tu-usuario/adblock-coffe/releases) (`Adblock Coffe Setup x.x.x.exe`) o la carpeta portable `win-unpacked`.
+2. Si usas el instalador: ejecútalo y elige la carpeta de instalación.
+3. Ejecuta **Adblock Coffe** como administrador (clic derecho → Ejecutar como administrador).
 
 ## Uso
 
-- Abre **Adblock.exe**.
-- Botón **Iniciar** para activar el bloqueo, **Pausar** para desactivar.
-- Cerrar la ventana lo envía a la **bandeja del sistema**.
-- Clic derecho en el icono de la bandeja → **Salir** para cerrar.
-- Ejecuta como **administrador** para poder modificar `hosts`.
+- **Toggle central**: activa o desactiva la protección (verde = activa, naranja = desactivada).
+- **Minimizar / Maximizar / Cerrar**: botones en la barra de título (la app se cierra a la bandeja).
+- **Acciones**: actualizar estado, importar configuración AdGuard (abre un diálogo para elegir el JSON).
+- **Estadísticas**: dominios bloqueados y estado del sistema.
+- Doble clic en el icono de la bandeja para volver a abrir la ventana.
 
-## Errores comunes al ejecutar
+## Compilar
 
-1. **Sigue apareciendo "Inactivo"**
-   - Verifica que el script sí se esté ejecutando como administrador.
-   - Revisa el log de la app (cuadro inferior) y `%TEMP%\adblock-diagnostico.txt`.
+```bash
+npm install
+npm run build
+```
 
-2. **No bloquea anuncios**
-   - Confirma conexión a internet para descargar la lista base (StevenBlack).
-   - Revisa que antivirus/firewall no bloqueen PowerShell o acceso al archivo `hosts`.
+Se genera el instalador en `dist\Adblock Coffe Setup 1.0.0.exe` y la versión portable en `dist\win-unpacked\`.
 
-3. **Falla la compilación por dependencias**
-   - Ejecuta `npm install` antes de `npm run build`.
-   - Si tu red corporativa bloquea npm, configura proxy/registro permitido.
+Opcional: coloca un icono en `Icon\adblock-icon.png` para la ventana y la bandeja.
 
-## Archivos del proyecto
+## Estructura
 
-| Archivo | Función |
-|---|---|
-| `main.js` | Ventana, bandeja del sistema, ejecución de PowerShell |
-| `preload.js` | API segura entre frontend y backend |
-| `app/index.html` | Interfaz gráfica |
-| `app/styles.css` | Tema oscuro |
-| `app/renderer.js` | Lógica de la interfaz |
-| `Update-Hosts.ps1` | Script que modifica el archivo hosts |
-| `Icon/adblock-icon.png` | Icono del programa |
+- `main.js` / `preload.js` / `app/`: interfaz Electron (ventana sin bordes, toggle, pestañas).
+- `Update-Hosts.ps1`: script que modifica el archivo hosts (Steven Black + EasyList + AdGuard Filters).
+- `user-block.txt` / `user-allow.txt`: se crean en la carpeta de recursos al importar o al usar listas propias.
+
+## Subir a GitHub
+
+```bash
+git init
+git add .
+git commit -m "Adblock Coffe - versión inicial"
+git branch -M main
+git remote add origin https://github.com/TU-USUARIO/TU-REPO.git
+git push -u origin main
+```
+
+Reemplaza `TU-USUARIO` y `TU-REPO` por tu usuario y nombre del repositorio en GitHub.

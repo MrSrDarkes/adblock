@@ -2,11 +2,8 @@
 <#
 .SYNOPSIS
     Adblock para Windows: actualiza el archivo hosts para bloquear anuncios y rastreadores.
-.DESCRIPTION
-    Descarga una lista de dominios (Steven Black) y los redirige a 0.0.0.0.
-    Soporta variantes de lista, reglas de usuario (bloquear/permitir) y config.
+    Fuentes: StevenBlack/hosts, EasyList (easylist.to), AdGuard Filters (github.com/AdguardTeam/AdguardFilters).
 #>
-
 param(
     [Parameter(Position = 0)]
     [ValidateSet('activar', 'desactivar', 'restaurar', 'estado')]
@@ -21,12 +18,21 @@ $UserBlockPath = "$PSScriptRoot\user-block.txt"
 $UserAllowPath = "$PSScriptRoot\user-allow.txt"
 
 $BaseUrl = 'https://raw.githubusercontent.com/StevenBlack/hosts/master'
+# Listas tipo Adblock (||dominio^): EasyList + AdGuard Filters (AdguardTeam/AdguardFilters)
+$FilterListUrls = @(
+    'https://easylist.to/easylist/easylist.txt',
+    'https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/general_url.txt',
+    'https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/adservers.txt',
+    'https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/specific.txt',
+    'https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/SpywareFilter/sections/general_url.txt',
+    'https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/SpywareFilter/sections/specific.txt'
+)
 $Variants = @{
-    'unified'   = "$BaseUrl/hosts"
-    'fakenews'  = "$BaseUrl/alternates/fakenews/hosts"
-    'gambling'  = "$BaseUrl/alternates/gambling/hosts"
-    'porn'      = "$BaseUrl/alternates/porn/hosts"
-    'social'    = "$BaseUrl/alternates/social/hosts"
+    'unified'  = "$BaseUrl/hosts"
+    'fakenews' = "$BaseUrl/alternates/fakenews/hosts"
+    'gambling' = "$BaseUrl/alternates/gambling/hosts"
+    'porn'     = "$BaseUrl/alternates/porn/hosts"
+    'social'   = "$BaseUrl/alternates/social/hosts"
 }
 
 $MarkerStart = '# ----- BEGIN Adblock -----'
@@ -54,9 +60,46 @@ function Get-UserAllowList {
     Get-Content $UserAllowPath -Encoding UTF8 | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ -and $_ -notmatch '^\s*#' }
 }
 
-function Get-HostsContent {
-    Get-Content -Path $HostsPath -Raw -Encoding UTF8
+# Extrae dominios de contenido tipo Adblock/EasyList/AdGuard (reglas ||dominio^ o ||dominio/)
+function Get-DomainsFromFilterContent {
+    param([string]$Content)
+    $entries = @()
+    foreach ($line in ($Content -split "`n")) {
+        $line = $line.Trim()
+        if (-not $line -or $line.StartsWith('!') -or $line.StartsWith('[') -or $line.StartsWith('@@')) { continue }
+        if ($line -match '^\|\|([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])(?:\^|/|\||$)') {
+            $domain = $Matches[1].ToLowerInvariant()
+            $domain = $domain -replace '^\*\.', '' -replace '^\.', ''
+            if ($domain -match '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$' -and $domain -match '\.' -and $domain.Length -le 253) {
+                $entries += "0.0.0.0 $domain"
+            }
+        }
+    }
+    $entries
 }
+
+# Descarga una URL de lista Adblock y devuelve entradas 0.0.0.0 dominio
+function Get-DomainsFromFilterUrl {
+    param([string]$Url)
+    try {
+        $content = (Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 25).Content
+        Get-DomainsFromFilterContent -Content $content
+    } catch {
+        Write-Warning "Lista no disponible: $Url"
+        @()
+    }
+}
+
+# Obtiene todos los dominios de EasyList + AdGuard Filters (AdguardTeam/AdguardFilters)
+function Get-AllFilterListDomains {
+    $all = @()
+    foreach ($url in $FilterListUrls) {
+        $all += Get-DomainsFromFilterUrl -Url $url
+    }
+    $all | Select-Object -Unique
+}
+
+function Get-HostsContent { Get-Content -Path $HostsPath -Raw -Encoding UTF8 }
 
 function Get-HostsWithoutAdblock {
     $content = Get-HostsContent
@@ -67,8 +110,7 @@ function Get-HostsWithoutAdblock {
 }
 
 function Test-AdblockActive {
-    $content = Get-HostsContent
-    $content -match [regex]::Escape($MarkerStart)
+    (Get-HostsContent) -match [regex]::Escape($MarkerStart)
 }
 
 function Backup-Hosts {
@@ -76,24 +118,24 @@ function Backup-Hosts {
     $date = Get-Date -Format 'yyyyMMdd-HHmmss'
     $backupPath = Join-Path $BackupDir "hosts.$date.backup"
     Copy-Item -Path $HostsPath -Destination $backupPath -Force
-    Write-Host "Backup guardado: $backupPath" -ForegroundColor Green
     $backupPath
 }
 
 function Get-Blocklist {
     $BlocklistUrl = Get-Config
-    Write-Host "Descargando lista de bloqueo..." -ForegroundColor Cyan
-    $lines = Invoke-WebRequest -Uri $BlocklistUrl -UseBasicParsing | Select-Object -ExpandProperty Content
+    $lines = (Invoke-WebRequest -Uri $BlocklistUrl -UseBasicParsing).Content
     $entries = @()
     foreach ($line in ($lines -split "`n")) {
         $line = $line.Trim()
         if ($line -match '^\s*0\.0\.0\.0\s+(\S+)' -or $line -match '^\s*127\.0\.0\.1\s+(\S+)') {
             $domain = $Matches[1]
-            if ($domain -notmatch '^#|^localhost$|^\s*$') {
-                $entries += "0.0.0.0 $domain"
-            }
+            if ($domain -notmatch '^#|^localhost$') { $entries += "0.0.0.0 $domain" }
         }
     }
+    # Añadir dominios de EasyList + AdGuard Filters (AdguardTeam/AdguardFilters)
+    $filterDomains = Get-AllFilterListDomains
+    $entries = $entries + $filterDomains
+    $entries = $entries | Select-Object -Unique
     $allow = Get-UserAllowList
     if ($allow.Count -gt 0) {
         $entries = $entries | Where-Object {
@@ -101,31 +143,19 @@ function Get-Blocklist {
             $allow -notcontains $dom.ToLowerInvariant()
         }
     }
-    $userBlock = Get-UserBlockList
-    foreach ($d in $userBlock) {
+    foreach ($d in (Get-UserBlockList)) {
         $d = $d.Trim().ToLowerInvariant()
-        if ($d -and $d -notmatch '^\s*#') {
-            $entries += "0.0.0.0 $d"
-        }
+        if ($d -and $d -notmatch '^\s*#') { $entries += "0.0.0.0 $d" }
     }
     $entries | Select-Object -Unique
 }
 
 function Enable-Adblock {
-    if (Test-AdblockActive) {
-        Write-Host "Adblock ya está activo. Actualizando lista..." -ForegroundColor Yellow
-    }
+    if (Test-AdblockActive) { Write-Host "Adblock ya activo. Actualizando..." -ForegroundColor Yellow }
     Backup-Hosts | Out-Null
     $base = Get-HostsWithoutAdblock
     $blockEntries = Get-Blocklist
-    $blockSection = @(
-        '',
-        $MarkerStart,
-        "# Actualizado: $(Get-Date -Format 'yyyy-MM-dd HH:mm')",
-        "# Dominios bloqueados: $($blockEntries.Count)",
-        $blockEntries,
-        $MarkerEnd
-    )
+    $blockSection = @('', $MarkerStart, "# Actualizado: $(Get-Date -Format 'yyyy-MM-dd HH:mm')", "# Dominios bloqueados: $($blockEntries.Count)", $blockEntries, $MarkerEnd)
     $newContent = $base + ($blockSection -join "`r`n")
     [System.IO.File]::WriteAllText($HostsPath, $newContent, [System.Text.UTF8Encoding]::new($false))
     Write-Host "Adblock ACTIVADO. $($blockEntries.Count) dominios bloqueados." -ForegroundColor Green
@@ -134,26 +164,19 @@ function Enable-Adblock {
 }
 
 function Disable-Adblock {
-    if (-not (Test-AdblockActive)) {
-        Write-Host "Adblock no estaba activo." -ForegroundColor Yellow
-        return
-    }
+    if (-not (Test-AdblockActive)) { Write-Host "Adblock no estaba activo." -ForegroundColor Yellow; return }
     Backup-Hosts | Out-Null
     $newContent = Get-HostsWithoutAdblock
     [System.IO.File]::WriteAllText($HostsPath, $newContent, [System.Text.UTF8Encoding]::new($false))
-    Write-Host "Adblock DESACTIVADO. Los anuncios ya no se bloquean por hosts." -ForegroundColor Green
+    Write-Host "Adblock DESACTIVADO." -ForegroundColor Green
     Write-Output "Adblock DESACTIVADO."
 }
 
 function Restore-Backup {
     $backups = Get-ChildItem -Path $BackupDir -Filter 'hosts.*.backup' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-    if (-not $backups) {
-        Write-Host "No hay backups disponibles en $BackupDir" -ForegroundColor Red
-        return
-    }
-    $latest = $backups[0]
-    Copy-Item -Path $latest.FullName -Destination $HostsPath -Force
-    Write-Host "Restaurado desde: $($latest.FullName)" -ForegroundColor Green
+    if (-not $backups) { Write-Host "No hay backups." -ForegroundColor Red; return }
+    Copy-Item -Path $backups[0].FullName -Destination $HostsPath -Force
+    Write-Host "Restaurado: $($backups[0].FullName)" -ForegroundColor Green
 }
 
 function Show-Status {
@@ -169,8 +192,6 @@ function Show-Status {
         Write-Host "Estado: Adblock INACTIVO" -ForegroundColor Yellow
         Write-Output "Estado: Adblock INACTIVO"
     }
-    $backups = Get-ChildItem -Path $BackupDir -Filter 'hosts.*.backup' -ErrorAction SilentlyContinue
-    if ($backups) { Write-Host "Backups disponibles: $($backups.Count)" }
 }
 
 switch ($Accion) {

@@ -1,196 +1,171 @@
-const statusText = document.getElementById('statusText');
-const detailsText = document.getElementById('detailsText');
-const toggleBtn = document.getElementById('toggleBtn');
-const refreshBtn = document.getElementById('refreshBtn');
-const importBtn = document.getElementById('importBtn');
-const logBox = document.getElementById('logBox');
+let btnToggle, statusTitle, statusSubtitle, statDominios, statEstado;
+let btnRefresh, btnImport, btnMin, btnMax, btnClose;
+let tabAcciones, tabEstadisticas, panelAcciones, panelEstadisticas;
+let logEl, notification, notificationText, notificationDismiss;
 
-const minBtn = document.getElementById('minBtn');
-const closeBtn = document.getElementById('closeBtn');
+const MSG_NEED_ADMIN = 'Se requieren permisos de administrador para aplicar los cambios.';
 
-let isActive = false;
-let busy = false;
+function getEl(id) { return document.getElementById(id); }
 
-function hasBridge() {
-  return Boolean(window.api);
+function log(msg) {
+  if (!logEl) return;
+  const ts = new Date().toLocaleTimeString('es-AR');
+  logEl.textContent = (logEl.textContent ? logEl.textContent + '\n' : '') + `[${ts}] ${msg}`;
+  logEl.scrollTop = logEl.scrollHeight;
 }
 
-function appendLog(message) {
-  const stamp = new Date().toLocaleTimeString();
-  logBox.textContent = `[${stamp}] ${message}\n` + logBox.textContent;
+function showNotification(message) {
+  if (notificationText) notificationText.textContent = message || MSG_NEED_ADMIN;
+  if (notification) notification.classList.remove('notification-hidden');
 }
 
-function normalizeText(output = '') {
-  if (!output) return '';
-  return String(output)
-    .replace(/\x1b\[[0-9;]*m/g, '')
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join('\n');
+function hideNotification() {
+  if (notification) notification.classList.add('notification-hidden');
 }
 
-function parseStatus(output = '') {
-  const clean = normalizeText(output).toUpperCase();
+function setLoading(loading) {
+  if (!btnToggle) return;
+  if (loading) btnToggle.classList.add('loading');
+  else btnToggle.classList.remove('loading');
+}
 
-  // Importante: evaluar INACTIVO primero, porque "INACTIVO" contiene "ACTIVO".
-  if (
-    clean.includes('ESTADO: ADBLOCK INACTIVO')
-    || clean.includes('ADBLOCK DESACTIVADO')
-    || /\bINACTIVO\b/.test(clean)
-    || /\bDESACTIVADO\b/.test(clean)
-  ) {
-    return false;
+function applyEstado(data) {
+  const activo = data && data.activo === true;
+  const dominios = data && typeof data.dominios === 'number' ? data.dominios : (data && data.dominios != null ? data.dominios : null);
+  const num = dominios != null ? Number(dominios) : 0;
+
+  if (activo) {
+    if (btnToggle) { btnToggle.classList.add('protected'); btnToggle.setAttribute('aria-pressed', 'true'); }
+    if (statusTitle) statusTitle.textContent = 'Protección habilitada';
+    if (statusSubtitle) statusSubtitle.textContent = 'Total bloqueado: ' + num.toLocaleString();
+    if (statEstado) { statEstado.textContent = 'Protegido'; statEstado.className = 'stat-value stat-status activo'; }
+    if (statDominios) statDominios.textContent = num > 0 ? num.toLocaleString() : '—';
+  } else {
+    if (btnToggle) btnToggle.classList.remove('protected');
+    btnToggle?.setAttribute('aria-pressed', 'false');
+    if (statusTitle) statusTitle.textContent = 'Protección deshabilitada';
+    if (statusSubtitle) statusSubtitle.textContent = 'Total bloqueado: 0';
+    if (statEstado) { statEstado.textContent = 'Desprotegido'; statEstado.className = 'stat-value stat-status inactivo'; }
+    if (statDominios) statDominios.textContent = '—';
   }
 
-  if (
-    clean.includes('ESTADO: ADBLOCK ACTIVO')
-    || clean.includes('ADBLOCK ACTIVADO')
-    || /\bACTIVO\b/.test(clean)
-    || /\bACTIVADO\b/.test(clean)
-  ) {
-    return true;
-  }
-
-  return null;
-}
-
-function extractBlockedCount(output = '') {
-  const clean = normalizeText(output);
-  const match = clean.match(/Dominios bloqueados:\s*(\d+)/i);
-  return match ? Number(match[1]) : null;
-}
-
-function setUiState(active) {
-  isActive = active;
-  statusText.textContent = active ? 'Activo' : 'Inactivo';
-  statusText.classList.toggle('active', active);
-  statusText.classList.toggle('inactive', !active);
-
-  toggleBtn.textContent = active ? 'Pausar' : 'Iniciar';
-  toggleBtn.classList.toggle('active', active);
-  toggleBtn.classList.toggle('inactive', !active);
-
-  if (hasBridge()) {
-    window.api.setTooltip(active ? 'Adblock (ACTIVO)' : 'Adblock (INACTIVO)');
-  }
-}
-
-function setBusyState(value) {
-  busy = value;
-  toggleBtn.disabled = value;
-  refreshBtn.disabled = value;
-  importBtn.disabled = value;
-}
-
-async function preflightCheck() {
-  if (!hasBridge()) {
-    detailsText.textContent = 'No hay conexión con Electron (preload/API).';
-    appendLog('window.api no está disponible. Abre la app con Electron, no el HTML directo.');
-    return;
-  }
-
-  try {
-    const diag = await window.api.getDiagnostic();
-    if (!diag.scriptExists) {
-      appendLog(`Falta script: ${diag.scriptPath}`);
-      detailsText.textContent = 'Falta Update-Hosts.ps1 en resources. Reinstala/compila la app.';
-    }
-    if (!diag.isAdmin) {
-      appendLog('La app no tiene privilegios de administrador.');
-      detailsText.textContent = 'Ejecuta como administrador para modificar hosts.';
-    }
-  } catch (error) {
-    appendLog(`Diagnóstico no disponible: ${error.message}`);
+  if (window.api && window.api.setTooltip) {
+    window.api.setTooltip(activo ? 'Adblock Coffe – Protección activa' : 'Adblock Coffe – Protección desactivada');
   }
 }
 
 async function refreshStatus() {
-  if (!hasBridge()) {
-    detailsText.textContent = 'No hay conexión con Electron (preload/API).';
-    appendLog('window.api no está disponible.');
+  const r = await window.api.estado();
+  if (!r.ok) {
+    applyEstado({ activo: false, dominios: null });
+    if (r.needsAdmin) showNotification(MSG_NEED_ADMIN);
+    else if (r.error) log('Error estado: ' + r.error);
     return;
   }
-
-  setBusyState(true);
-  try {
-    const result = await window.api.status();
-    if (!result.ok) throw new Error(result.error || 'Error al consultar estado');
-
-    const active = parseStatus(result.output);
-    if (active !== null) setUiState(active);
-
-    const blocked = extractBlockedCount(result.output);
-    detailsText.textContent = blocked !== null
-      ? `${blocked} dominios bloqueados.`
-      : 'Estado consultado correctamente.';
-
-    appendLog(normalizeText(result.output) || 'Estado actualizado');
-  } catch (error) {
-    appendLog(`Error de estado: ${error.message}`);
-    detailsText.textContent = 'No se pudo consultar el estado.';
-  } finally {
-    setBusyState(false);
-  }
+  hideNotification();
+  applyEstado({ activo: r.activo, dominios: r.dominios });
 }
 
 async function toggleAdblock() {
-  if (busy) return;
-  if (!hasBridge()) {
-    appendLog('No se puede ejecutar: window.api no está disponible.');
-    return;
+  const isProtected = btnToggle.classList.contains('protected');
+  const action = isProtected ? 'desactivar' : 'activar';
+  setLoading(true);
+  hideNotification();
+
+  const r = await (action === 'activar' ? window.api.activar() : window.api.desactivar());
+
+  setLoading(false);
+
+  if (r.ok) {
+    log(action === 'activar' ? 'Protección activada.' : 'Protección desactivada.');
+    applyEstado({ activo: r.activo, dominios: r.dominios });
+  } else {
+    if (r.needsAdmin) showNotification(MSG_NEED_ADMIN);
+    else log('Error: ' + (r.error || ''));
+    applyEstado({ activo: r.activo, dominios: r.dominios });
   }
+}
 
-  setBusyState(true);
+function switchTab(toAcciones) {
+  tabAcciones.classList.toggle('active', toAcciones);
+  tabEstadisticas.classList.toggle('active', !toAcciones);
+  tabAcciones.setAttribute('aria-selected', toAcciones ? 'true' : 'false');
+  tabEstadisticas.setAttribute('aria-selected', !toAcciones ? 'true' : 'false');
+  panelAcciones.classList.toggle('active', toAcciones);
+  panelEstadisticas.classList.toggle('active', !toAcciones);
+  panelAcciones.hidden = !toAcciones;
+  panelEstadisticas.hidden = toAcciones;
+}
 
-  try {
-    const action = isActive ? 'deactivate' : 'activate';
-    const result = await window.api[action]();
-    if (!result.ok) throw new Error(result.error || 'Fallo de PowerShell');
-
-    appendLog(normalizeText(result.output) || 'Comando ejecutado');
-
-    const parsed = parseStatus(result.output);
-    const nextState = parsed !== null ? parsed : !isActive;
-    setUiState(nextState);
-
-    const blocked = extractBlockedCount(result.output);
-    detailsText.textContent = blocked !== null
-      ? `${blocked} dominios bloqueados.`
-      : nextState ? 'Protección activa.' : 'Protección detenida.';
-
-    await refreshStatus();
-  } catch (error) {
-    appendLog(`Error: ${error.message}`);
-    detailsText.textContent = 'No se pudo ejecutar la acción.';
-  } finally {
-    setBusyState(false);
-  }
+async function preflightCheck() {
+  const d = await window.api.getDiagnostic();
+  if (!d.scriptExists) log('Aviso: Update-Hosts.ps1 no encontrado en ' + (d.scriptPath || ''));
 }
 
 async function importConfig() {
-  if (!hasBridge()) {
-    appendLog('No se puede importar: window.api no está disponible.');
+  if (!window.api || !window.api.openAdguardFileDialog) {
+    log('Error: no se puede abrir el diálogo de importación.');
     return;
   }
-
-  try {
-    const result = await window.api.importAdguardConfig();
-    if (result.canceled) return;
-    if (!result.ok) throw new Error(result.error || 'No se pudo importar');
-
-    appendLog(`Importación completada. allow=${result.allowCount}, block=${result.blockCount}`);
-    detailsText.textContent = 'Configuración importada. Vuelve a activar para aplicar.';
-  } catch (error) {
-    appendLog(`Error importando: ${error.message}`);
+  const r = await window.api.openAdguardFileDialog();
+  if (r.canceled) return;
+  if (r.ok) {
+    log('Importados ' + r.count + ' reglas de AdGuard.');
+  } else {
+    log('Error importación: ' + (r.error || ''));
   }
 }
 
-minBtn.addEventListener('click', () => hasBridge() && window.api.minimize());
-closeBtn.addEventListener('click', () => hasBridge() && window.api.close());
-toggleBtn.addEventListener('click', toggleAdblock);
-refreshBtn.addEventListener('click', refreshStatus);
-importBtn.addEventListener('click', importConfig);
+function init() {
+  btnToggle = getEl('btnToggle');
+  statusTitle = getEl('statusTitle');
+  statusSubtitle = getEl('statusSubtitle');
+  statDominios = getEl('statDominios');
+  statEstado = getEl('statEstado');
+  btnRefresh = getEl('btnRefresh');
+  btnImport = getEl('btnImport');
+  btnMin = getEl('btnMin');
+  btnMax = getEl('btnMax');
+  btnClose = getEl('btnClose');
+  tabAcciones = getEl('tabAcciones');
+  tabEstadisticas = getEl('tabEstadisticas');
+  panelAcciones = getEl('panelAcciones');
+  panelEstadisticas = getEl('panelEstadisticas');
+  logEl = getEl('log');
+  notification = getEl('notification');
+  if (notification) {
+    notificationText = notification.querySelector('.notification-text');
+    notificationDismiss = notification.querySelector('.notification-dismiss');
+  }
 
-preflightCheck().then(refreshStatus);
+  if (!window.api) {
+    console.error('Adblock: window.api no disponible. ¿Se cargó el preload?');
+    return;
+  }
+
+  if (window.api.onEstadoInicial) {
+    window.api.onEstadoInicial((data) => {
+      if (data && typeof data.activo === 'boolean') applyEstado({ activo: data.activo, dominios: data.dominios });
+      if (data && data.needsAdmin) showNotification(MSG_NEED_ADMIN);
+    });
+  }
+
+  if (btnToggle) btnToggle.addEventListener('click', toggleAdblock);
+  if (btnRefresh) btnRefresh.addEventListener('click', () => { log('Actualizando estado...'); refreshStatus(); });
+  if (btnImport) btnImport.addEventListener('click', importConfig);
+  if (btnMin) btnMin.addEventListener('click', () => window.api.minimize());
+  if (btnMax) btnMax.addEventListener('click', () => window.api.maximize());
+  if (btnClose) btnClose.addEventListener('click', () => window.api.close());
+  if (notificationDismiss) notificationDismiss.addEventListener('click', hideNotification);
+  if (tabAcciones) tabAcciones.addEventListener('click', () => switchTab(true));
+  if (tabEstadisticas) tabEstadisticas.addEventListener('click', () => switchTab(false));
+
+  preflightCheck();
+  refreshStatus();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}

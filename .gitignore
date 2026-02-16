@@ -1,5 +1,6 @@
 node_modules/
 dist/
+release/
 backups/
 config.json
 user-block.txt
@@ -7,4 +8,3 @@ user-allow.txt
 adg_ext_settings*.json
 *.log
 .env
-*.png
