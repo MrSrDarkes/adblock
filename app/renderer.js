@@ -1,189 +1,196 @@
-(() => {
-  const $ = (s) => document.getElementById(s);
-  const statusLabel = $('statusLabel');
-  const blockedCount = $('blockedCount');
-  const blockedTotal = $('blockedTotal');
-  const powerBtn = $('powerBtn');
-  const powerLabel = $('powerLabel');
-  const statDomains = $('statDomains');
-  const statState = $('statState');
-  const statDate = $('statDate');
-  const logArea = $('logArea');
-  const adminBanner = $('adminBanner');
+const statusText = document.getElementById('statusText');
+const detailsText = document.getElementById('detailsText');
+const toggleBtn = document.getElementById('toggleBtn');
+const refreshBtn = document.getElementById('refreshBtn');
+const importBtn = document.getElementById('importBtn');
+const logBox = document.getElementById('logBox');
 
-  let isActive = false;
-  let count = 0;
+const minBtn = document.getElementById('minBtn');
+const closeBtn = document.getElementById('closeBtn');
 
-  function showAdminBanner() {
-    if (adminBanner) adminBanner.classList.remove('hidden');
-  }
-  function hideAdminBanner() {
-    if (adminBanner) adminBanner.classList.add('hidden');
-  }
+let isActive = false;
+let busy = false;
 
-  function log(msg) {
-    const ts = new Date().toLocaleTimeString('es');
-    logArea.textContent += `[${ts}] ${msg}\n`;
-    logArea.scrollTop = logArea.scrollHeight;
-  }
+function hasBridge() {
+  return Boolean(window.api);
+}
 
-  function fmt(n) {
-    return Number(n).toLocaleString('es');
-  }
+function appendLog(message) {
+  const stamp = new Date().toLocaleTimeString();
+  logBox.textContent = `[${stamp}] ${message}\n` + logBox.textContent;
+}
 
-  function updateUI() {
-    const c = fmt(count);
-    if (blockedCount) { blockedCount.textContent = isActive ? c : '0'; blockedCount.className = 'blocked-count' + (isActive ? '' : ' inactive'); }
-    if (blockedTotal) blockedTotal.textContent = isActive ? c : '0';
-    if (statusLabel) statusLabel.textContent = isActive ? 'Protección activa' : 'Protección inactiva';
-    if (powerBtn) powerBtn.className = 'power-btn ' + (isActive ? 'on' : 'off');
-    if (powerLabel) { powerLabel.textContent = isActive ? 'ON' : 'OFF'; powerLabel.className = 'power-label' + (isActive ? ' on' : ''); }
-    if (statDomains) statDomains.textContent = isActive ? c : '0';
-    if (statState) { statState.textContent = isActive ? 'Activo' : 'Inactivo'; statState.style.color = isActive ? '#2ecc71' : '#e53935'; }
-    if (window.api && window.api.setTooltip) window.api.setTooltip(isActive ? `Adblock — ${c} bloqueados` : 'Adblock — Inactivo');
-  }
+function normalizeText(output = '') {
+  if (!output) return '';
+  return String(output)
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n');
+}
 
-  function parseCount(output) {
-    if (output == null || typeof output !== 'string') return 0;
-    const m = output.match(/Dominios bloqueados:\s*(\d+)/i) || output.match(/(\d+)\s*dominios bloqueados/i);
-    return m ? parseInt(m[1], 10) : 0;
+function parseStatus(output = '') {
+  const clean = normalizeText(output).toUpperCase();
+
+  // Importante: evaluar INACTIVO primero, porque "INACTIVO" contiene "ACTIVO".
+  if (
+    clean.includes('ESTADO: ADBLOCK INACTIVO')
+    || clean.includes('ADBLOCK DESACTIVADO')
+    || /\bINACTIVO\b/.test(clean)
+    || /\bDESACTIVADO\b/.test(clean)
+  ) {
+    return false;
   }
 
-  async function refreshStatus() {
-    try {
-      const r = await window.api.status();
-      if (r.ok) {
-        isActive = /Adblock\s+ACTIVO/i.test(r.output) && !/INACTIVO/i.test(r.output);
-        count = parseCount(r.output) || count;
-        hideAdminBanner();
-      } else {
-        isActive = false;
-        showAdminBanner();
-        log('Aviso: Ejecutar como administrador para modificar hosts.');
-      }
-    } catch (e) {
-      isActive = false;
-      showAdminBanner();
-      log('Error al consultar estado: ' + e.message);
+  if (
+    clean.includes('ESTADO: ADBLOCK ACTIVO')
+    || clean.includes('ADBLOCK ACTIVADO')
+    || /\bACTIVO\b/.test(clean)
+    || /\bACTIVADO\b/.test(clean)
+  ) {
+    return true;
+  }
+
+  return null;
+}
+
+function extractBlockedCount(output = '') {
+  const clean = normalizeText(output);
+  const match = clean.match(/Dominios bloqueados:\s*(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
+function setUiState(active) {
+  isActive = active;
+  statusText.textContent = active ? 'Activo' : 'Inactivo';
+  statusText.classList.toggle('active', active);
+  statusText.classList.toggle('inactive', !active);
+
+  toggleBtn.textContent = active ? 'Pausar' : 'Iniciar';
+  toggleBtn.classList.toggle('active', active);
+  toggleBtn.classList.toggle('inactive', !active);
+
+  if (hasBridge()) {
+    window.api.setTooltip(active ? 'Adblock (ACTIVO)' : 'Adblock (INACTIVO)');
+  }
+}
+
+function setBusyState(value) {
+  busy = value;
+  toggleBtn.disabled = value;
+  refreshBtn.disabled = value;
+  importBtn.disabled = value;
+}
+
+async function preflightCheck() {
+  if (!hasBridge()) {
+    detailsText.textContent = 'No hay conexión con Electron (preload/API).';
+    appendLog('window.api no está disponible. Abre la app con Electron, no el HTML directo.');
+    return;
+  }
+
+  try {
+    const diag = await window.api.getDiagnostic();
+    if (!diag.scriptExists) {
+      appendLog(`Falta script: ${diag.scriptPath}`);
+      detailsText.textContent = 'Falta Update-Hosts.ps1 en resources. Reinstala/compila la app.';
     }
-    updateUI();
+    if (!diag.isAdmin) {
+      appendLog('La app no tiene privilegios de administrador.');
+      detailsText.textContent = 'Ejecuta como administrador para modificar hosts.';
+    }
+  } catch (error) {
+    appendLog(`Diagnóstico no disponible: ${error.message}`);
+  }
+}
+
+async function refreshStatus() {
+  if (!hasBridge()) {
+    detailsText.textContent = 'No hay conexión con Electron (preload/API).';
+    appendLog('window.api no está disponible.');
+    return;
   }
 
-  powerBtn.addEventListener('click', async () => {
-    if (powerBtn.disabled) return;
-    powerBtn.disabled = true;
-    powerLabel.textContent = '...';
+  setBusyState(true);
+  try {
+    const result = await window.api.status();
+    if (!result.ok) throw new Error(result.error || 'Error al consultar estado');
 
-    log(isActive ? 'Desactivando bloqueo…' : 'Activando bloqueo (descargando lista)…');
+    const active = parseStatus(result.output);
+    if (active !== null) setUiState(active);
 
-    try {
-      const api = window.api;
-      if (!api || !api.activate || !api.deactivate) {
-        log('Error: No se pudo conectar con el programa.');
-        return;
-      }
-      const r = isActive ? await api.deactivate() : await api.activate();
-      const out = (r && r.output != null) ? String(r.output) : '';
+    const blocked = extractBlockedCount(result.output);
+    detailsText.textContent = blocked !== null
+      ? `${blocked} dominios bloqueados.`
+      : 'Estado consultado correctamente.';
 
-      if (r && r.ok) {
-        if (isActive) {
-          isActive = false;
-          count = 0;
-          statDate.textContent = '—';
-          log('Desactivado.');
-        } else {
-          isActive = true;
-          const n = parseCount(out);
-          if (n > 0) count = n;
-          statDate.textContent = new Date().toLocaleString('es');
-          log('Activado. ' + fmt(count) + ' dominios bloqueados.');
-        }
-      } else {
-        const err = (r && r.error != null) ? String(r.error) : '';
-        if (/administrador|Administrator|elevated|denied|Acceso|RunAs|requiere/i.test(err)) {
-          showAdminBanner();
-          log('ERROR: Ejecuta Adblock como Administrador.');
-          log('→ Clic derecho en Adblock.exe → Ejecutar como administrador');
-        } else {
-          log('Error: ' + (err || 'Desconocido'));
-        }
-      }
-    } catch (e) {
-      log('Error: ' + (e && e.message ? e.message : String(e)));
-    } finally {
-      powerBtn.disabled = false;
-      updateUI();
-    }
-  });
+    appendLog(normalizeText(result.output) || 'Estado actualizado');
+  } catch (error) {
+    appendLog(`Error de estado: ${error.message}`);
+    detailsText.textContent = 'No se pudo consultar el estado.';
+  } finally {
+    setBusyState(false);
+  }
+}
 
-  $('actionUpdate').addEventListener('click', async (e) => {
-    e.preventDefault();
-    powerBtn.disabled = true;
-    log('Actualizando lista de bloqueo…');
-    const r = await window.api.activate();
-    if (r.ok) {
-      isActive = true;
-      count = parseCount(r.output) || count;
-      statDate.textContent = new Date().toLocaleString('es');
-      log(`Lista actualizada. ${fmt(count)} dominios.`);
-    } else {
-      log('Error: ' + (r.error || 'Ejecutar como administrador.'));
-    }
-    updateUI();
-    powerBtn.disabled = false;
-  });
+async function toggleAdblock() {
+  if (busy) return;
+  if (!hasBridge()) {
+    appendLog('No se puede ejecutar: window.api no está disponible.');
+    return;
+  }
 
-  $('actionRestore').addEventListener('click', async (e) => {
-    e.preventDefault();
-    log('Restaurando hosts original…');
-    const r = await window.api.deactivate();
-    if (r.ok) { isActive = false; count = 0; log('Hosts restaurado.'); }
-    else { log('Error: ' + (r.error || 'Ejecutar como administrador.')); }
-    updateUI();
-  });
+  setBusyState(true);
 
-  $('actionImportAdguard').addEventListener('click', async (e) => {
-    e.preventDefault();
-    if (!window.api || !window.api.importAdguardConfig) return;
-    log('Importando configuración AdGuard…');
-    const r = await window.api.importAdguardConfig();
-    if (r.canceled) {
-      log('Importación cancelada.');
-      return;
-    }
-    if (r.ok) {
-      log(`Configuración importada: ${r.allowCount} dominios en lista blanca, ${r.blockCount} en bloqueo.`);
-      log('Activa de nuevo el bloqueo para aplicar los cambios.');
-    } else {
-      log('Error al importar: ' + (r.error || 'Desconocido'));
-    }
-  });
+  try {
+    const action = isActive ? 'deactivate' : 'activate';
+    const result = await window.api[action]();
+    if (!result.ok) throw new Error(result.error || 'Fallo de PowerShell');
 
-  $('btnMin').addEventListener('click', () => window.api && window.api.minimize());
-  $('btnClose').addEventListener('click', () => window.api && window.api.close());
+    appendLog(normalizeText(result.output) || 'Comando ejecutado');
 
-  $('btnRelaunchAdmin').addEventListener('click', async () => {
-    if (!window.api || !window.api.relaunchAsAdmin) return;
-    const r = await window.api.relaunchAsAdmin();
-    if (r && r.ok) {
-      if (r.alreadyAdmin) hideAdminBanner();
-      else log('Reiniciando como administrador… Acepta el aviso de UAC.');
-    } else {
-      log('Reiniciar como admin solo está disponible en Adblock.exe instalado.');
-    }
-  });
+    const parsed = parseStatus(result.output);
+    const nextState = parsed !== null ? parsed : !isActive;
+    setUiState(nextState);
 
-  document.querySelectorAll('.tab').forEach((tab) => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-      document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
-      tab.classList.add('active');
-      const panel = $('panel-' + tab.dataset.tab);
-      if (panel) panel.classList.add('active');
-    });
-  });
+    const blocked = extractBlockedCount(result.output);
+    detailsText.textContent = blocked !== null
+      ? `${blocked} dominios bloqueados.`
+      : nextState ? 'Protección activa.' : 'Protección detenida.';
 
-  logArea.textContent = '';
-  log('Adblock iniciado.');
-  refreshStatus();
-})();
+    await refreshStatus();
+  } catch (error) {
+    appendLog(`Error: ${error.message}`);
+    detailsText.textContent = 'No se pudo ejecutar la acción.';
+  } finally {
+    setBusyState(false);
+  }
+}
+
+async function importConfig() {
+  if (!hasBridge()) {
+    appendLog('No se puede importar: window.api no está disponible.');
+    return;
+  }
+
+  try {
+    const result = await window.api.importAdguardConfig();
+    if (result.canceled) return;
+    if (!result.ok) throw new Error(result.error || 'No se pudo importar');
+
+    appendLog(`Importación completada. allow=${result.allowCount}, block=${result.blockCount}`);
+    detailsText.textContent = 'Configuración importada. Vuelve a activar para aplicar.';
+  } catch (error) {
+    appendLog(`Error importando: ${error.message}`);
+  }
+}
+
+minBtn.addEventListener('click', () => hasBridge() && window.api.minimize());
+closeBtn.addEventListener('click', () => hasBridge() && window.api.close());
+toggleBtn.addEventListener('click', toggleAdblock);
+refreshBtn.addEventListener('click', refreshStatus);
+importBtn.addEventListener('click', importConfig);
+
+preflightCheck().then(refreshStatus);

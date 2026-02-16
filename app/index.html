@@ -1,70 +1,35 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Adblock</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="titlebar">
-    <span class="titlebar-title">🛡 Adblock</span>
-    <div class="titlebar-buttons">
-      <button class="tb-btn" id="btnMin" title="Minimizar a bandeja">─</button>
-      <button class="tb-btn tb-close" id="btnClose" title="Cerrar">✕</button>
-    </div>
-  </div>
-
-  <div class="admin-banner hidden" id="adminBanner">
-    <span class="admin-banner-text">Se necesitan permisos de administrador para bloquear anuncios.</span>
-    <button type="button" class="admin-banner-btn" id="btnRelaunchAdmin">Reiniciar como administrador</button>
-  </div>
-
-  <main class="dashboard">
-    <div class="status-card">
-      <div class="status-label" id="statusLabel">Comprobando…</div>
-      <div class="blocked-count" id="blockedCount">—</div>
-      <div class="blocked-sub">Total bloqueado: <span id="blockedTotal">—</span></div>
-
-      <div class="power-wrap">
-        <button class="power-btn off" id="powerBtn" title="Activar / Desactivar">
-          <span class="power-icon">⏻</span>
-        </button>
-        <div class="power-label" id="powerLabel">OFF</div>
+  <div class="window">
+    <header class="titlebar">
+      <h1>Adblock</h1>
+      <div class="window-buttons">
+        <button id="minBtn" title="Minimizar">—</button>
+        <button id="closeBtn" title="Cerrar">✕</button>
       </div>
-    </div>
+    </header>
 
-    <nav class="tabs">
-      <button class="tab active" data-tab="acciones">Acciones</button>
-      <button class="tab" data-tab="estadisticas">Estadísticas</button>
-      <button class="tab" data-tab="registro">Registro</button>
-    </nav>
+    <main>
+      <p id="statusText" class="status inactive">Inactivo</p>
+      <p id="detailsText" class="details">Sin información todavía.</p>
 
-    <section class="panel active" id="panel-acciones">
-      <a href="#" class="action-row" id="actionUpdate">
-        <span class="action-icon">↻</span>
-        <span>Actualizar lista de bloqueo</span>
-      </a>
-      <a href="#" class="action-row" id="actionRestore">
-        <span class="action-icon">⊘</span>
-        <span>Restaurar archivo hosts original</span>
-      </a>
-      <a href="#" class="action-row" id="actionImportAdguard">
-        <span class="action-icon">📥</span>
-        <span>Importar configuración AdGuard</span>
-      </a>
-    </section>
+      <button id="toggleBtn" class="toggle inactive">Iniciar</button>
 
-    <section class="panel" id="panel-estadisticas">
-      <div class="stat-row"><span>Dominios bloqueados</span><strong id="statDomains">—</strong></div>
-      <div class="stat-row"><span>Estado</span><strong id="statState">—</strong></div>
-      <div class="stat-row"><span>Última actualización</span><strong id="statDate">—</strong></div>
-    </section>
+      <div class="actions">
+        <button id="refreshBtn">Actualizar estado</button>
+        <button id="importBtn">Importar AdGuard</button>
+      </div>
 
-    <section class="panel" id="panel-registro">
-      <div class="log-area" id="logArea">Sin actividad registrada.</div>
-    </section>
-  </main>
+      <pre id="logBox" aria-live="polite"></pre>
+    </main>
+  </div>
 
   <script src="renderer.js"></script>
 </body>
